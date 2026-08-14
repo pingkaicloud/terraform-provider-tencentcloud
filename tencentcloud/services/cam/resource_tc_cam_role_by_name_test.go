@@ -10,8 +10,22 @@ import (
 	"github.com/tencentcloudstack/terraform-provider-tencentcloud/tencentcloud/services/cam"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 )
+
+func TestTencentCloudCamRoleByNameRoleIDSchema(t *testing.T) {
+	roleID, ok := cam.ResourceTencentCloudCamRoleByName().Schema["role_id"]
+	if !ok {
+		t.Fatal("role_id schema is not defined")
+	}
+	if roleID.Type != schema.TypeString {
+		t.Fatalf("role_id type = %v, want string", roleID.Type)
+	}
+	if !roleID.Computed {
+		t.Fatal("role_id must be computed")
+	}
+}
 
 func TestAccTencentCloudCamRoleByNameResource_basic(t *testing.T) {
 	t.Parallel()
@@ -25,6 +39,7 @@ func TestAccTencentCloudCamRoleByNameResource_basic(t *testing.T) {
 				Check: resource.ComposeTestCheckFunc(
 					testAccCamRoleByNameExists("tencentcloud_cam_role_by_name.role_basic"),
 					resource.TestCheckResourceAttrSet("tencentcloud_cam_role_by_name.role_basic", "name"),
+					resource.TestCheckResourceAttrSet("tencentcloud_cam_role_by_name.role_basic", "role_id"),
 					resource.TestCheckResourceAttrSet("tencentcloud_cam_role_by_name.role_basic", "document"),
 				),
 			}, {
@@ -32,6 +47,7 @@ func TestAccTencentCloudCamRoleByNameResource_basic(t *testing.T) {
 				Check: resource.ComposeTestCheckFunc(
 					testAccCamRoleByNameExists("tencentcloud_cam_role_by_name.role_basic"),
 					resource.TestCheckResourceAttrSet("tencentcloud_cam_role_by_name.role_basic", "name"),
+					resource.TestCheckResourceAttrSet("tencentcloud_cam_role_by_name.role_basic", "role_id"),
 					resource.TestCheckResourceAttrSet("tencentcloud_cam_role_by_name.role_basic", "document"),
 				),
 			},

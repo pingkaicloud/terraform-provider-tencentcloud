@@ -37,6 +37,11 @@ func ResourceTencentCloudCamRoleByName() *schema.Resource {
 				ForceNew:    true,
 				Description: "Name of CAM role.",
 			},
+			"role_id": {
+				Type:        schema.TypeString,
+				Computed:    true,
+				Description: "ID of the CAM role assigned by Tencent Cloud.",
+			},
 			"document": {
 				Type:     schema.TypeString,
 				Required: true,
@@ -213,6 +218,7 @@ func resourceTencentCloudCamRoleByNameRead(d *schema.ResourceData, meta interfac
 	}
 
 	_ = d.Set("name", instance.RoleName)
+	_ = d.Set("role_id", instance.RoleId)
 	_ = d.Set("document", instance.PolicyDocument)
 	_ = d.Set("create_time", instance.AddTime)
 	_ = d.Set("update_time", instance.UpdateTime)

@@ -80,6 +80,7 @@ In addition to all arguments above, the following attributes are exported:
 
 * `id` - ID of the resource.
 * `create_time` - Create time of the CAM role.
+* `role_id` - ID of the CAM role assigned by Tencent Cloud.
 * `update_time` - The last update time of the CAM role.
 
 

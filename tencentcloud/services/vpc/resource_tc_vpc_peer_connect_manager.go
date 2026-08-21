@@ -80,6 +80,12 @@ func ResourceTencentCloudVpcPeerConnectManager() *schema.Resource {
 				Type:        schema.TypeString,
 				Description: "Service classification PT, AU, AG.",
 			},
+
+			"state": {
+				Computed:    true,
+				Type:        schema.TypeString,
+				Description: "State of the VPC peering connection. Valid values include PENDING, ACTIVE, REJECTED, DELETED, FAILED, EXPIRED, and ISOLATED.",
+			},
 		},
 	}
 }
@@ -205,6 +211,12 @@ func resourceTencentCloudVpcPeerConnectManagerRead(d *schema.ResourceData, meta 
 
 	if PeerConnectManager.QosLevel != nil {
 		_ = d.Set("qos_level", PeerConnectManager.QosLevel)
+	}
+
+	if PeerConnectManager.State != nil {
+		if err := d.Set("state", *PeerConnectManager.State); err != nil {
+			return fmt.Errorf("set vpc peering connection state: %w", err)
+		}
 	}
 
 	return nil

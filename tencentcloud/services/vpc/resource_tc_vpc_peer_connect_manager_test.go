@@ -4,9 +4,24 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 
 	tcacctest "github.com/tencentcloudstack/terraform-provider-tencentcloud/tencentcloud/acctest"
+	svcvpc "github.com/tencentcloudstack/terraform-provider-tencentcloud/tencentcloud/services/vpc"
 )
+
+func TestTencentCloudVpcPeerConnectManagerStateSchema(t *testing.T) {
+	state, ok := svcvpc.ResourceTencentCloudVpcPeerConnectManager().Schema["state"]
+	if !ok {
+		t.Fatal("state schema is not defined")
+	}
+	if state.Type != schema.TypeString {
+		t.Fatalf("state type = %v, want string", state.Type)
+	}
+	if !state.Computed {
+		t.Fatal("state must be computed")
+	}
+}
 
 func TestAccTencentCloudVpcPeerConnectManagerResource_basic(t *testing.T) {
 	t.Parallel()
@@ -24,6 +39,7 @@ func TestAccTencentCloudVpcPeerConnectManagerResource_basic(t *testing.T) {
 					resource.TestCheckResourceAttrSet("tencentcloud_vpc_peer_connect_manager.peer_connect_manager", "destination_vpc_id"),
 					resource.TestCheckResourceAttr("tencentcloud_vpc_peer_connect_manager.peer_connect_manager", "destination_uin", "100022975249"),
 					resource.TestCheckResourceAttr("tencentcloud_vpc_peer_connect_manager.peer_connect_manager", "destination_region", "ap-guangzhou"),
+					resource.TestCheckResourceAttrSet("tencentcloud_vpc_peer_connect_manager.peer_connect_manager", "state"),
 				),
 			},
 			{
@@ -34,6 +50,7 @@ func TestAccTencentCloudVpcPeerConnectManagerResource_basic(t *testing.T) {
 					resource.TestCheckResourceAttrSet("tencentcloud_vpc_peer_connect_manager.peer_connect_manager", "destination_vpc_id"),
 					resource.TestCheckResourceAttr("tencentcloud_vpc_peer_connect_manager.peer_connect_manager", "destination_uin", "100022975249"),
 					resource.TestCheckResourceAttr("tencentcloud_vpc_peer_connect_manager.peer_connect_manager", "destination_region", "ap-guangzhou"),
+					resource.TestCheckResourceAttrSet("tencentcloud_vpc_peer_connect_manager.peer_connect_manager", "state"),
 				),
 			},
 			{

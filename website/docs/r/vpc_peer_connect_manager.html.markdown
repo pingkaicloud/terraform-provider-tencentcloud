@@ -56,8 +56,7 @@ The following arguments are supported:
 In addition to all arguments above, the following attributes are exported:
 
 * `id` - ID of the resource.
-* `state` - State of the VPC peering connection. Valid values include `PENDING`, `ACTIVE`, `REJECTED`, `DELETED`, `FAILED`, `EXPIRED`, and `ISOLATED`.
-
+* `state` - State of the VPC peering connection. Valid values include PENDING, ACTIVE, REJECTED, DELETED, FAILED, EXPIRED, and ISOLATED.
 
 
 ## Import
@@ -67,3 +66,4 @@ vpc peer_connect_manager can be imported using the id, e.g.
 ```
 terraform import tencentcloud_vpc_peer_connect_manager.peer_connect_manager peer_connect_manager_id
 ```
+

@@ -12,7 +12,7 @@ on:
 
 jobs:
   sync:
-    runs-on: ubuntu-latest
+    runs-on: pingkai-runner-cn-shanghai
 
     steps:
       - name: clone

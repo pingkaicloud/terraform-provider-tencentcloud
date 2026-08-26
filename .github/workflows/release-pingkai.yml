@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: pingkai-runner-cn-shanghai
     steps:
       - name: Check out release tag
         uses: actions/checkout@v7

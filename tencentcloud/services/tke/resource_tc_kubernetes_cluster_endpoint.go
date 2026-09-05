@@ -21,6 +21,9 @@ func ResourceTencentCloudTkeClusterEndpoint() *schema.Resource {
 		Create: resourceTencentCloudTkeClusterEndpointCreate,
 		Update: resourceTencentCloudTkeClusterEndpointUpdate,
 		Delete: resourceTencentCloudTkeClusterEndpointDelete,
+		Importer: &schema.ResourceImporter{
+			StateContext: resourceTencentCloudTkeClusterEndpointImport,
+		},
 		Schema: map[string]*schema.Schema{
 			"cluster_id": {
 				Type:        schema.TypeString,
@@ -141,6 +144,31 @@ func ResourceTencentCloudTkeClusterEndpoint() *schema.Resource {
 			},
 		},
 	}
+}
+
+// Import only observes existing access modes. A passthrough importer would
+// leave both flags false, so the subsequent Read would never fetch kubeconfig
+// for an existing endpoint during Crossplane Observe-only recovery.
+func resourceTencentCloudTkeClusterEndpointImport(ctx context.Context, d *schema.ResourceData, meta interface{}) ([]*schema.ResourceData, error) {
+	service := TkeService{client: meta.(tccommon.ProviderMeta).GetAPIV3Conn()}
+	response, err := service.DescribeClusterSecurity(ctx, d.Id())
+	if err != nil {
+		return nil, err
+	}
+	if response == nil || response.Response == nil {
+		return nil, fmt.Errorf("cluster %s security response is empty", d.Id())
+	}
+	security := response.Response
+	for key, value := range map[string]interface{}{
+		"cluster_id":       d.Id(),
+		"cluster_internet": security.ClusterExternalEndpoint != nil && *security.ClusterExternalEndpoint != "",
+		"cluster_intranet": security.PgwEndpoint != nil && *security.PgwEndpoint != "",
+	} {
+		if err := d.Set(key, value); err != nil {
+			return nil, fmt.Errorf("import cluster endpoint %s: set %s: %w", d.Id(), key, err)
+		}
+	}
+	return []*schema.ResourceData{d}, nil
 }
 
 func resourceTencentCloudTkeClusterEndpointRead(d *schema.ResourceData, meta interface{}) error {

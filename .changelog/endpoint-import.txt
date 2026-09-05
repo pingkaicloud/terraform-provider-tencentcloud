@@ -1,0 +1,3 @@
+```release-note:bug
+resource/tencentcloud_kubernetes_cluster_endpoint: support read-only import of existing endpoint access modes so subsequent refresh can recover kubeconfig without recreating endpoints
+```

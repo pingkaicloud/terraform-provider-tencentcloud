@@ -77,4 +77,21 @@ In addition to all arguments above, the following attributes are exported:
 * `pgw_endpoint` - The Intranet address used for access.
 * `user_name` - User name of account.
 
+## Import
+
+Existing cluster endpoint settings can be imported using the cluster ID:
+
+```shell
+terraform import tencentcloud_kubernetes_cluster_endpoint.example cls-existing
+```
+
+Import only reads the existing endpoint configuration. It initializes the public
+and private access flags so the following refresh can retrieve kubeconfig for
+enabled endpoints; it does not open, close or recreate either endpoint.
+
+Keep the configured domains, security groups and subnet consistent with the
+existing cluster, and review the plan before applying changes. For Crossplane
+recovery, use Observe-only management policies until all references and desired
+settings are verified. Import alone does not restore unrelated cluster, node
+pool or network resource associations.
 

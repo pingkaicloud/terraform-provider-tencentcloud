@@ -138,8 +138,9 @@ func ResourceTencentCloudKubernetesNodePool() *schema.Resource {
 			"node_config": {
 				Type:        schema.TypeList,
 				Optional:    true,
+				Computed:    true,
 				MaxItems:    1,
-				Description: "Node config.",
+				Description: "Node config. When omitted, retain the configuration returned by TKE.",
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
 						"mount_target": {
@@ -789,12 +790,16 @@ func resourceTencentCloudKubernetesNodePoolCreate(d *schema.ResourceData, meta i
 }
 
 func resourceTencentCloudKubernetesNodePoolRead(d *schema.ResourceData, meta interface{}) error {
+	return readKubernetesNodePool(d, meta, false)
+}
+
+func readKubernetesNodePool(d *schema.ResourceData, meta interface{}, importing bool) error {
 	defer tccommon.LogElapsed("resource.tencentcloud_kubernetes_node_pool.read")()
 	defer tccommon.InconsistentCheck(d, meta)()
 
 	logId := tccommon.GetLogId(tccommon.ContextNil)
 
-	ctx := tccommon.NewResourceLifeCycleHandleFuncContext(context.Background(), logId, d, meta)
+	ctx := tccommon.NewResourceLifeCycleHandleFuncContext(context.WithValue(context.Background(), nodePoolImportContextKey{}, importing), logId, d, meta)
 
 	service := TkeService{client: meta.(tccommon.ProviderMeta).GetAPIV3Conn()}
 

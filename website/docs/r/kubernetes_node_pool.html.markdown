@@ -355,7 +355,7 @@ The following arguments are supported:
 * `enable_auto_scale` - (Optional, Bool) Indicate whether to enable auto scaling or not.
 * `labels` - (Optional, Map) Labels of kubernetes node pool created nodes. The label key name does not exceed 63 characters, only supports English, numbers,'/','-', and does not allow beginning with ('/').
 * `multi_zone_subnet_policy` - (Optional, String) Multi-availability zone/subnet policy. Valid values: PRIORITY and EQUALITY. Default value: PRIORITY.
-* `node_config` - (Optional, List) Node config.
+* `node_config` - (Optional, List) Node config. When omitted, retain the configuration returned by TKE.
 * `node_os_type` - (Optional, String) The image version of the node. Valida values are `DOCKER_CUSTOMIZE` and `GENERAL`. Default is `GENERAL`. This parameter will only affect new nodes, not including the existing nodes.
 * `node_os` - (Optional, String) Node pool operating system (enter the image ID for a custom image, and enter the OS name for a public image). If custom image, please refer to [TencentCloud Documentation](https://www.tencentcloud.com/document/product/457/46750?lang=en&pg=#list-of-public-images-supported-by-tke) for available values. Default is 'tlinux2.4x86_64'. This parameter will only affect new nodes, not including the existing nodes.
 * `retry_policy` - (Optional, String, ForceNew) Available values for retry policies include `IMMEDIATE_RETRY` and `INCREMENTAL_INTERVALS`.

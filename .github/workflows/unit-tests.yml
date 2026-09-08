@@ -31,7 +31,7 @@ jobs:
         run: go test -v ./tencentcloud -test.run 'TestProvider'
 
       - name: TKE node pool default regression
-        run: go test -v ./tencentcloud/services/tke -run '^TestKubernetesNodePoolDesiredPodNum(Default|Create)$' -count=1
+        run: go test -v ./tencentcloud/services/tke -run '^Test(KubernetesNodePoolDesiredPodNum(Default|Create)|NodePool(ReadRepairsMissingNodeConfig|UnrelatedUpdateDoesNotSetCapacity|ExplicitCapacityChangeRetained|NormalReadPreservesPopulatedConfig|ReadHydrationPreventsReplacement|OmittedNodeConfigRetainsCloudDefaults))$' -count=1
 
       # Verify SDKv2 + framework provider mux compatibility (no schema clash,
       # no duplicate resource/data source type names across stacks).

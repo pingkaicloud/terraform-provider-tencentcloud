@@ -23,11 +23,10 @@ import (
 	tke "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/tke/v20180525"
 )
 
-var importFlag = false
+type nodePoolImportContextKey struct{}
 
 func nodePoolCustomResourceImporter(ctx context.Context, d *schema.ResourceData, m interface{}) ([]*schema.ResourceData, error) {
-	importFlag = true
-	err := resourceTencentCloudKubernetesNodePoolRead(d, m)
+	err := readKubernetesNodePool(d, m, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to import resource")
 	}
@@ -185,6 +184,7 @@ func resourceTencentCloudKubernetesNodePoolReadRequestOnSuccess1(ctx context.Con
 func resourceTencentCloudKubernetesNodePoolReadPostHandleResponse1(ctx context.Context, resp *tke.NodePool) error {
 	d := tccommon.ResourceDataFromContext(ctx)
 	meta := tccommon.ProviderMetaFromContext(ctx)
+	importFlag, _ := ctx.Value(nodePoolImportContextKey{}).(bool)
 
 	var (
 		asService = svcas.NewAsService(meta.(tccommon.ProviderMeta).GetAPIV3Conn())
@@ -350,6 +350,62 @@ func resourceTencentCloudKubernetesNodePoolReadPostHandleResponse1(ctx context.C
 		}
 	}
 
+	if err := readNodePoolNodeConfig(d, nodePool, importFlag); err != nil {
+		return err
+	}
+
+	// Relative scaling group status
+	asg, hasAsg, err := asService.DescribeAutoScalingGroupById(ctx, *nodePool.AutoscalingGroupId)
+	if err != nil {
+		err = resource.Retry(tccommon.ReadRetryTimeout, func() *resource.RetryError {
+			asg, hasAsg, err = asService.DescribeAutoScalingGroupById(ctx, *nodePool.AutoscalingGroupId)
+			if err != nil {
+				return tccommon.RetryError(err)
+			}
+			return nil
+		})
+	}
+
+	if err != nil {
+		return nil
+	}
+
+	if hasAsg > 0 {
+		_ = d.Set("scaling_group_name", asg.AutoScalingGroupName)
+		_ = d.Set("zones", asg.ZoneSet)
+		_ = d.Set("scaling_group_project_id", asg.ProjectId)
+		_ = d.Set("default_cooldown", asg.DefaultCooldown)
+		_ = d.Set("termination_policies", helper.StringsInterfaces(asg.TerminationPolicySet))
+		_ = d.Set("vpc_id", asg.VpcId)
+		_ = d.Set("retry_policy", asg.RetryPolicy)
+		_ = d.Set("subnet_ids", helper.StringsInterfaces(asg.SubnetIdSet))
+		if v, ok := d.GetOk("scaling_mode"); ok {
+			if asg.ServiceSettings != nil && asg.ServiceSettings.ScalingMode != nil {
+				_ = d.Set("scaling_mode", helper.PString(asg.ServiceSettings.ScalingMode))
+			} else {
+				_ = d.Set("scaling_mode", v.(string))
+			}
+		}
+
+		if asg.ServiceSettings != nil && asg.ServiceSettings.AutoUpdateInstanceTags != nil {
+			_ = d.Set("auto_update_instance_tags", asg.ServiceSettings.AutoUpdateInstanceTags)
+		}
+
+		// If not check, the diff between computed and default empty value leads to force replacement
+		if _, ok := d.GetOk("multi_zone_subnet_policy"); ok {
+			_ = d.Set("multi_zone_subnet_policy", asg.MultiZoneSubnetPolicy)
+		}
+	}
+	if v, ok := d.GetOkExists("delete_keep_instance"); ok {
+		_ = d.Set("delete_keep_instance", v.(bool))
+	} else {
+		_ = d.Set("delete_keep_instance", true)
+	}
+
+	return nil
+}
+
+func readNodePoolNodeConfig(d *schema.ResourceData, nodePool *tke.NodePool, importFlag bool) error {
 	nodeConfig := make(map[string]interface{})
 	nodeConfigs := make([]interface{}, 0, 1)
 
@@ -389,7 +445,11 @@ func resourceTencentCloudKubernetesNodePoolReadPostHandleResponse1(ctx context.C
 		nodeConfig["pre_start_user_script"] = helper.PString(nodePool.PreStartUserScript)
 	}
 
-	if importFlag {
+	// Upjet may rebuild state from observations without running SDK Importer.
+	// Hydrate a missing block on ordinary Read as well, before immutable defaults
+	// can turn a valid existing pool into a replacement plan. Preserve populated
+	// state on normal reads, matching the existing treatment of write-only fields.
+	if importFlag || len(d.Get("node_config").([]interface{})) == 0 {
 		if nodePool.ExtraArgs != nil && len(nodePool.ExtraArgs.Kubelet) > 0 {
 			extraArgs := make([]string, 0)
 			for i := range nodePool.ExtraArgs.Kubelet {
@@ -454,56 +514,7 @@ func resourceTencentCloudKubernetesNodePoolReadPostHandleResponse1(ctx context.C
 			}
 		}
 		nodeConfigs = append(nodeConfigs, nodeConfig)
-		_ = d.Set("node_config", nodeConfigs)
-		importFlag = false
-	}
-
-	// Relative scaling group status
-	asg, hasAsg, err := asService.DescribeAutoScalingGroupById(ctx, *nodePool.AutoscalingGroupId)
-	if err != nil {
-		err = resource.Retry(tccommon.ReadRetryTimeout, func() *resource.RetryError {
-			asg, hasAsg, err = asService.DescribeAutoScalingGroupById(ctx, *nodePool.AutoscalingGroupId)
-			if err != nil {
-				return tccommon.RetryError(err)
-			}
-			return nil
-		})
-	}
-
-	if err != nil {
-		return nil
-	}
-
-	if hasAsg > 0 {
-		_ = d.Set("scaling_group_name", asg.AutoScalingGroupName)
-		_ = d.Set("zones", asg.ZoneSet)
-		_ = d.Set("scaling_group_project_id", asg.ProjectId)
-		_ = d.Set("default_cooldown", asg.DefaultCooldown)
-		_ = d.Set("termination_policies", helper.StringsInterfaces(asg.TerminationPolicySet))
-		_ = d.Set("vpc_id", asg.VpcId)
-		_ = d.Set("retry_policy", asg.RetryPolicy)
-		_ = d.Set("subnet_ids", helper.StringsInterfaces(asg.SubnetIdSet))
-		if v, ok := d.GetOk("scaling_mode"); ok {
-			if asg.ServiceSettings != nil && asg.ServiceSettings.ScalingMode != nil {
-				_ = d.Set("scaling_mode", helper.PString(asg.ServiceSettings.ScalingMode))
-			} else {
-				_ = d.Set("scaling_mode", v.(string))
-			}
-		}
-
-		if asg.ServiceSettings != nil && asg.ServiceSettings.AutoUpdateInstanceTags != nil {
-			_ = d.Set("auto_update_instance_tags", asg.ServiceSettings.AutoUpdateInstanceTags)
-		}
-
-		// If not check, the diff between computed and default empty value leads to force replacement
-		if _, ok := d.GetOk("multi_zone_subnet_policy"); ok {
-			_ = d.Set("multi_zone_subnet_policy", asg.MultiZoneSubnetPolicy)
-		}
-	}
-	if v, ok := d.GetOkExists("delete_keep_instance"); ok {
-		_ = d.Set("delete_keep_instance", v.(bool))
-	} else {
-		_ = d.Set("delete_keep_instance", true)
+		return d.Set("node_config", nodeConfigs)
 	}
 
 	return nil
@@ -634,7 +645,7 @@ func resourceTencentCloudKubernetesNodePoolUpdateOnStart(ctx context.Context) er
 	// to
 	// min 3 max 6 desired 5
 	// modify min/max first will cause error, this case must upgrade desired first
-	if d.HasChange("desired_capacity") || !desiredCapacityOutRange(d) {
+	if shouldUpdateNodePoolCapacityBeforeBounds(d) {
 		err := resource.Retry(tccommon.WriteRetryTimeout, func() *resource.RetryError {
 			errRet := service.ModifyClusterNodePoolDesiredCapacity(ctx, clusterId, nodePoolId, desiredCapacity)
 			if errRet != nil {
@@ -1333,13 +1344,6 @@ func composeAsLaunchConfigModifyRequest(d *schema.ResourceData, launchConfigId s
 	return request, nil
 }
 
-func desiredCapacityOutRange(d *schema.ResourceData) bool {
-	capacity := d.Get("desired_capacity").(int)
-	minSize := d.Get("min_size").(int)
-	maxSize := d.Get("max_size").(int)
-	return capacity > maxSize || capacity < minSize
-}
-
 func resourceTencentCloudKubernetesNodePoolUpdateTaints(ctx context.Context, clusterId string, nodePoolId string) error {
 	d := tccommon.ResourceDataFromContext(ctx)
 	meta := tccommon.ProviderMetaFromContext(ctx)
@@ -1573,4 +1577,11 @@ func waitNodePoolInitializing(ctx context.Context, clusterId, nodePoolId, step s
 	}
 
 	return nil
+}
+
+func shouldUpdateNodePoolCapacityBeforeBounds(d *schema.ResourceData) bool {
+	// A computed, unchanged capacity belongs to the autoscaler. Writing the
+	// observed value during an unrelated update can undo a concurrent scale.
+	// Preserve the existing ordering for explicit capacity changes.
+	return d.HasChange("desired_capacity")
 }

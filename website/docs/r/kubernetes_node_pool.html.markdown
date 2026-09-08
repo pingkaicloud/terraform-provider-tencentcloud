@@ -435,7 +435,7 @@ The `gpu_args` object of `node_config` supports the following:
 The `node_config` object supports the following:
 
 * `data_disk` - (Optional, List, ForceNew) Configurations of data disk.
-* `desired_pod_num` - (Optional, Int, ForceNew) Indicate to set desired pod number in node. valid when the cluster is podCIDR.
+* `desired_pod_num` - (Optional, Int, ForceNew) Indicate to set desired pod number in node. valid when the cluster is podCIDR. When omitted, retain the value assigned by TKE.
 * `docker_graph_path` - (Optional, String, ForceNew) Docker graph path. Default is `/var/lib/docker`.
 * `extra_args` - (Optional, List, ForceNew) Custom parameter information related to the node. This is a white-list parameter.
 * `gpu_args` - (Optional, List, ForceNew) GPU driver parameters.

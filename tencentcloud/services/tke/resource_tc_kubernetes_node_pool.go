@@ -237,8 +237,9 @@ func ResourceTencentCloudKubernetesNodePool() *schema.Resource {
 						"desired_pod_num": {
 							Type:        schema.TypeInt,
 							Optional:    true,
+							Computed:    true,
 							ForceNew:    true,
-							Description: "Indicate to set desired pod number in node. valid when the cluster is podCIDR.",
+							Description: "Indicate to set desired pod number in node. valid when the cluster is podCIDR. When omitted, retain the value assigned by TKE.",
 						},
 						"gpu_args": {
 							Type:        schema.TypeList,

@@ -1,0 +1,3 @@
+```release-note:bug
+resource/tencentcloud_vpc_end_point_service_white_list: treat a missing endpoint service as already deleted during refresh and destroy so stale whitelist resources can be finalized
+```

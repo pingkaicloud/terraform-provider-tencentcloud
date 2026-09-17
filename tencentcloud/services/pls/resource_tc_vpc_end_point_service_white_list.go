@@ -59,6 +59,13 @@ func ResourceTencentCloudVpcEndPointServiceWhiteList() *schema.Resource {
 	}
 }
 
+func isVpcEndPointServiceWhiteListNotFound(err error) bool {
+	return tccommon.IsExpectError(err, []string{
+		"ResourceNotFound",
+		"InvalidParameterValue.ResourceNotFound",
+	})
+}
+
 func resourceTencentCloudVpcEndPointServiceWhiteListCreate(d *schema.ResourceData, meta interface{}) error {
 	defer tccommon.LogElapsed("resource.tencentcloud_vpc_end_point_service_white_list.create")()
 	defer tccommon.InconsistentCheck(d, meta)()
@@ -122,12 +129,16 @@ func resourceTencentCloudVpcEndPointServiceWhiteListRead(d *schema.ResourceData,
 
 	endPointServiceWhiteList, err := service.DescribeVpcEndPointServiceWhiteListById(ctx, userUin, endPointServiceId)
 	if err != nil {
+		if isVpcEndPointServiceWhiteListNotFound(err) {
+			d.SetId("")
+			return nil
+		}
 		return err
 	}
 
 	if endPointServiceWhiteList == nil {
 		d.SetId("")
-		return fmt.Errorf("resource `track` %s does not exist", d.Id())
+		return nil
 	}
 
 	if endPointServiceWhiteList.UserUin != nil {
@@ -220,7 +231,10 @@ func resourceTencentCloudVpcEndPointServiceWhiteListDelete(d *schema.ResourceDat
 	endPointServiceId := idSplit[1]
 
 	if err := service.DeleteVpcEndPointServiceWhiteListById(ctx, userUin, endPointServiceId); err != nil {
-		return nil
+		if isVpcEndPointServiceWhiteListNotFound(err) {
+			return nil
+		}
+		return err
 	}
 
 	return nil

@@ -59,6 +59,18 @@ func ResourceTencentCloudVpcEndPointServiceWhiteList() *schema.Resource {
 	}
 }
 
+func isVpcEndPointServiceWhiteListNotFound(err error) bool {
+	return tccommon.IsExpectError(err, []string{
+		"ResourceNotFound",
+		"InvalidParameterValue.ResourceNotFound",
+	})
+}
+
+type endPointServiceWhiteListService interface {
+	DescribeVpcEndPointServiceWhiteListById(context.Context, string, string) (*vpc.VpcEndPointServiceUser, error)
+	DeleteVpcEndPointServiceWhiteListById(context.Context, string, string) error
+}
+
 func resourceTencentCloudVpcEndPointServiceWhiteListCreate(d *schema.ResourceData, meta interface{}) error {
 	defer tccommon.LogElapsed("resource.tencentcloud_vpc_end_point_service_white_list.create")()
 	defer tccommon.InconsistentCheck(d, meta)()
@@ -113,6 +125,14 @@ func resourceTencentCloudVpcEndPointServiceWhiteListRead(d *schema.ResourceData,
 
 	service := svcvpc.NewVpcService(meta.(tccommon.ProviderMeta).GetAPIV3Conn())
 
+	return readEndPointServiceWhiteList(ctx, d, &service)
+}
+
+func readEndPointServiceWhiteList(
+	ctx context.Context,
+	d *schema.ResourceData,
+	service endPointServiceWhiteListService,
+) error {
 	idSplit := strings.Split(d.Id(), tccommon.FILED_SP)
 	if len(idSplit) != 2 {
 		return fmt.Errorf("id is broken,%s", d.Id())
@@ -122,12 +142,16 @@ func resourceTencentCloudVpcEndPointServiceWhiteListRead(d *schema.ResourceData,
 
 	endPointServiceWhiteList, err := service.DescribeVpcEndPointServiceWhiteListById(ctx, userUin, endPointServiceId)
 	if err != nil {
+		if isVpcEndPointServiceWhiteListNotFound(err) {
+			d.SetId("")
+			return nil
+		}
 		return err
 	}
 
 	if endPointServiceWhiteList == nil {
 		d.SetId("")
-		return fmt.Errorf("resource `track` %s does not exist", d.Id())
+		return nil
 	}
 
 	if endPointServiceWhiteList.UserUin != nil {
@@ -212,6 +236,15 @@ func resourceTencentCloudVpcEndPointServiceWhiteListDelete(d *schema.ResourceDat
 	ctx := context.WithValue(context.TODO(), tccommon.LogIdKey, logId)
 
 	service := svcvpc.NewVpcService(meta.(tccommon.ProviderMeta).GetAPIV3Conn())
+
+	return deleteEndPointServiceWhiteList(ctx, d, &service)
+}
+
+func deleteEndPointServiceWhiteList(
+	ctx context.Context,
+	d *schema.ResourceData,
+	service endPointServiceWhiteListService,
+) error {
 	idSplit := strings.Split(d.Id(), tccommon.FILED_SP)
 	if len(idSplit) != 2 {
 		return fmt.Errorf("id is broken,%s", d.Id())
@@ -220,7 +253,10 @@ func resourceTencentCloudVpcEndPointServiceWhiteListDelete(d *schema.ResourceDat
 	endPointServiceId := idSplit[1]
 
 	if err := service.DeleteVpcEndPointServiceWhiteListById(ctx, userUin, endPointServiceId); err != nil {
-		return nil
+		if isVpcEndPointServiceWhiteListNotFound(err) {
+			return nil
+		}
+		return err
 	}
 
 	return nil

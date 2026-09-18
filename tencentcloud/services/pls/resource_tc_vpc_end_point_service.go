@@ -89,6 +89,17 @@ func ResourceTencentCloudVpcEndPointService() *schema.Resource {
 	}
 }
 
+func isVpcEndPointServiceNotFound(err error) bool {
+	return tccommon.IsExpectError(err, []string{
+		"ResourceNotFound",
+		"InvalidParameterValue.ResourceNotFound",
+	})
+}
+
+type endPointServiceService interface {
+	DescribeVpcEndPointServiceById(context.Context, string) (*vpc.EndPointService, error)
+}
+
 func resourceTencentCloudVpcEndPointServiceCreate(d *schema.ResourceData, meta interface{}) error {
 	defer tccommon.LogElapsed("resource.tencentcloud_vpc_end_point_service.create")()
 	defer tccommon.InconsistentCheck(d, meta)()
@@ -156,20 +167,32 @@ func resourceTencentCloudVpcEndPointServiceRead(d *schema.ResourceData, meta int
 	defer tccommon.InconsistentCheck(d, meta)()
 
 	var (
-		logId             = tccommon.GetLogId(tccommon.ContextNil)
-		ctx               = context.WithValue(context.TODO(), tccommon.LogIdKey, logId)
-		service           = svcvpc.NewVpcService(meta.(tccommon.ProviderMeta).GetAPIV3Conn())
-		endPointServiceId = d.Id()
+		logId   = tccommon.GetLogId(tccommon.ContextNil)
+		ctx     = context.WithValue(context.TODO(), tccommon.LogIdKey, logId)
+		service = svcvpc.NewVpcService(meta.(tccommon.ProviderMeta).GetAPIV3Conn())
 	)
 
+	return readEndPointService(ctx, d, &service)
+}
+
+func readEndPointService(
+	ctx context.Context,
+	d *schema.ResourceData,
+	service endPointServiceService,
+) error {
+	endPointServiceId := d.Id()
 	endPointService, err := service.DescribeVpcEndPointServiceById(ctx, endPointServiceId)
 	if err != nil {
+		if isVpcEndPointServiceNotFound(err) {
+			d.SetId("")
+			return nil
+		}
 		return err
 	}
 
 	if endPointService == nil {
 		d.SetId("")
-		return fmt.Errorf("resource `tencentcloud_vpc_end_point_service` %s does not exist", d.Id())
+		return nil
 	}
 
 	if endPointService.VpcId != nil {

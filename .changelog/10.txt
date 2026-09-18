@@ -1,0 +1,3 @@
+```release-note:bug
+resource/tencentcloud_vpc_end_point_service: treat a missing endpoint service as already deleted during refresh so stale endpoint service resources can be finalized
+```

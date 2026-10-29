@@ -242,7 +242,7 @@ func Provider() *schema.Provider {
 				Type:        schema.TypeSet,
 				Optional:    true,
 				MaxItems:    1,
-				Description: "The `assume_role` block. If provided, terraform will attempt to assume this role using the supplied credentials.",
+				Description: "The `assume_role` block. If provided, terraform will attempt to assume this role using the supplied credentials. When assume_role_with_web_identity is also set, its temporary credentials are used for this hop.",
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
 						"role_arn": {
@@ -377,7 +377,7 @@ func Provider() *schema.Provider {
 							Type:        schema.TypeString,
 							Optional:    true,
 							DefaultFunc: schema.EnvDefaultFunc(PROVIDER_ASSUME_ROLE_WEB_IDENTITY_TOKEN_FILE, nil),
-							Description: "File containing a web identity token from an OpenID Connect (OIDC) or OAuth provider. It can be sourced from the `TENCENTCLOUD_ASSUME_ROLE_WEB_IDENTITY_TOKEN_FILE`. One of `web_identity_token` or `web_identity_token_file` is required.",
+							Description: "File containing a raw web identity token (including a TKE projected JWT) or legacy JSON with a web_identity_token key. It can be sourced from the `TENCENTCLOUD_ASSUME_ROLE_WEB_IDENTITY_TOKEN_FILE`. One of `web_identity_token` or `web_identity_token_file` is required.",
 						},
 						"role_arn": {
 							Type:        schema.TypeString,
@@ -2958,21 +2958,15 @@ func providerConfigure(d *schema.ResourceData) (interface{}, error) {
 		}
 	}
 
+	// Explicit web identity supplies the base credentials for an optional
+	// assume_role hop. Defer that hop until OIDC has populated the client.
+	_, hasWebIdentity := d.GetOk("assume_role_with_web_identity")
 	// get assume role from tf
-	if v, ok := d.GetOk("assume_role"); ok {
+	if v, ok := d.GetOk("assume_role"); ok && !hasWebIdentity {
 		assumeRoleList := v.(*schema.Set).List()
 		if len(assumeRoleList) == 1 {
 			assumeRole := assumeRoleList[0].(map[string]interface{})
-			assumeRoleArn = assumeRole["role_arn"].(string)
-			assumeRoleSessionName = assumeRole["session_name"].(string)
-			assumeRoleSessionDuration = assumeRole["session_duration"].(int)
-			assumeRolePolicy = assumeRole["policy"].(string)
-			assumeRoleExternalId = assumeRole["external_id"].(string)
-			assumeRoleSourceIdentity = assumeRole["source_identity"].(string)
-			assumeRoleSerialNumber = assumeRole["serial_number"].(string)
-			assumeRoleTokenCode = assumeRole["token_code"].(string)
-
-			err = genClientWithSTS(&tcClient, assumeRoleArn, assumeRoleSessionName, assumeRoleSessionDuration, assumeRolePolicy, assumeRoleExternalId, assumeRoleSourceIdentity, assumeRoleSerialNumber, assumeRoleTokenCode)
+			err = genClientWithSTSConfig(&tcClient, assumeRole)
 			if err != nil {
 				return nil, fmt.Errorf("Get auth from assume role failed. Reason: %s", err.Error())
 			}
@@ -3060,6 +3054,14 @@ func providerConfigure(d *schema.ResourceData) (interface{}, error) {
 			}
 
 			needSecret = false
+			if v, ok := d.GetOk("assume_role"); ok {
+				assumeRoleList := v.(*schema.Set).List()
+				if len(assumeRoleList) == 1 {
+					if err := genClientWithSTSConfig(&tcClient, assumeRoleList[0].(map[string]interface{})); err != nil {
+						return nil, fmt.Errorf("Get auth from assume role after OIDC failed: %w", err)
+					}
+				}
+			}
 		}
 	}
 
@@ -3172,6 +3174,21 @@ func genClientWithCAM(tcClient *TencentCloudClient, roleName string) error {
 	)
 
 	return nil
+}
+
+// genClientWithSTSConfig uses the credentials already established on tcClient,
+// including the temporary SecretId, SecretKey and Token returned by OIDC.
+func genClientWithSTSConfig(tcClient *TencentCloudClient, config map[string]interface{}) error {
+	return genClientWithSTS(tcClient,
+		config["role_arn"].(string),
+		config["session_name"].(string),
+		config["session_duration"].(int),
+		config["policy"].(string),
+		config["external_id"].(string),
+		config["source_identity"].(string),
+		config["serial_number"].(string),
+		config["token_code"].(string),
+	)
 }
 
 func genClientWithSTS(tcClient *TencentCloudClient, assumeRoleArn, assumeRoleSessionName string, assumeRoleSessionDuration int, assumeRolePolicy string, assumeRoleExternalId string, assumeRoleSourceIdentity string, assumeRoleSerialNumber string, assumeRoleTokenCode string) error {
@@ -3573,21 +3590,21 @@ func getConfigFromWebIdentityTokenFile(filePath string) (map[string]interface{},
 		return nil, fmt.Errorf("failed to read `web_identity_token_file` %s: %w", filePath, err)
 	}
 
-	var config struct {
-		WebIdentityToken string `json:"web_identity_token"`
+	// TKE projects a raw JWT. Keep accepting the legacy JSON wrapper, and read
+	// the file each time so a subsequent Configure sees kubelet token rotation.
+	token := strings.TrimSpace(string(data))
+	if strings.HasPrefix(token, "{") {
+		var config struct {
+			WebIdentityToken string `json:"web_identity_token"`
+		}
+		if err := json.Unmarshal(data, &config); err != nil {
+			return nil, fmt.Errorf("failed to parse `web_identity_token_file` JSON from %s: %w", filePath, err)
+		}
+		token = strings.TrimSpace(config.WebIdentityToken)
+	}
+	if token == "" {
+		return nil, fmt.Errorf("`web_identity_token_file` %s contains no web identity token", filePath)
 	}
 
-	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse `web_identity_token_file` JSON from %s: %w", filePath, err)
-	}
-
-	if config.WebIdentityToken == "" {
-		return nil, fmt.Errorf("field `web_identity_token` in `web_identity_token_file` is empty in %s", filePath)
-	}
-
-	result := map[string]interface{}{
-		"web_identity_token": config.WebIdentityToken,
-	}
-
-	return result, nil
+	return map[string]interface{}{"web_identity_token": token}, nil
 }

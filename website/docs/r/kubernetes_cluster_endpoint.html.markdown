@@ -77,6 +77,7 @@ In addition to all arguments above, the following attributes are exported:
 * `pgw_endpoint` - The Intranet address used for access.
 * `user_name` - User name of account.
 
+
 ## Import
 
 Existing cluster endpoint settings can be imported using the cluster ID:

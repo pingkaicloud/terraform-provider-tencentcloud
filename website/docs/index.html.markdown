@@ -269,12 +269,18 @@ If provided with an assume role with OIDC, Terraform will attempt to assume this
 
 Content formatting guidelines of `web_identity_token_file`:
 
-The file content must be in JSON format and must contain the key: `web_identity_token`.
+Pass the path to a file containing the raw token, such as the JWT projected by TKE.
+Leading and trailing whitespace is removed. The file is read again on each provider
+configuration, so a later configuration picks up a rotated token.
+
+```text
+eyJ0eXAiOiJKV1QiLCJh......E8T0qyVA7hWM55_g
+```
+
+The legacy JSON format remains supported:
 
 ```json
-{
-    "web_identity_token": "eyJ0eXAiOiJKV1QiLCJh......E8T0qyVA7hWM55_g"
-}
+{"web_identity_token":"<JWT>"}
 ```
 
 Content formatting guidelines of `role_arn_file`:
@@ -313,6 +319,59 @@ provider "tencentcloud" {
     session_name            = "my-session-name"
     session_duration        = 3600
     web_identity_token_file = "/AbsolutePath/to/your/secrets/web-identity-token-file"
+  }
+}
+```
+
+#### OIDC followed by AssumeRole
+
+When both explicit blocks are configured, the provider first calls
+`AssumeRoleWithWebIdentity`, then signs `AssumeRole` with the returned temporary
+SecretId, SecretKey, and Token. The final role credentials are used for resources.
+Neither `secret_id` nor `secret_key` is required for this chain.
+
+```hcl
+provider "tencentcloud" {
+  region = "ap-guangzhou"
+
+  assume_role_with_web_identity {
+    provider_id             = "<seed-cluster-oidc-provider>"
+    role_arn                = "qcs::cam::uin/<seed-account>:roleName/controlplane"
+    session_name            = "crossplane-oidc"
+    session_duration        = 3600
+    web_identity_token_file = "/var/run/secrets/cloud.tencent.com/serviceaccount/token"
+  }
+
+  assume_role {
+    role_arn         = "qcs::cam::uin/<shoot-account>:roleName/dataplane"
+    session_name     = "crossplane-dataplane"
+    session_duration = 1800
+  }
+}
+```
+
+The control-plane role must trust the TKE OIDC identity and be allowed to call
+`sts:AssumeRole` on the target role. The target role must trust the control-plane
+role. Failure of either hop aborts provider configuration.
+
+Crossplane callers can put the same explicit settings in their existing
+configuration Secret's `credentials` JSON. The token path is inside the provider
+pod; callers pass the path rather than reading or wrapping the JWT themselves:
+
+```json
+{
+  "region": "ap-guangzhou",
+  "assume_role_with_web_identity": {
+    "provider_id": "<seed-cluster-oidc-provider>",
+    "role_arn": "qcs::cam::uin/<seed-account>:roleName/controlplane",
+    "session_name": "crossplane-oidc",
+    "session_duration": 3600,
+    "web_identity_token_file": "/var/run/secrets/cloud.tencent.com/serviceaccount/token"
+  },
+  "assume_role": {
+    "role_arn": "qcs::cam::uin/<shoot-account>:roleName/dataplane",
+    "session_name": "crossplane-dataplane",
+    "session_duration": 1800
   }
 }
 ```
@@ -522,4 +581,4 @@ The nested `assume_role_with_web_identity` block supports the following:
 * `session_name` - (Required) The session name to use when making the AssumeRole call. It can also be sourced from the `TENCENTCLOUD_ASSUME_ROLE_SESSION_NAME` environment variable.
 * `session_duration` - (Required) The duration of the session when making the AssumeRole call. Its value ranges from 0 to 43200(seconds), and default is 7200 seconds. It can also be sourced from the `TENCENTCLOUD_ASSUME_ROLE_SESSION_DURATION` environment variable.
 * `web_identity_token` - (Optional) OIDC token issued by IdP. It can be sourced from the `TENCENTCLOUD_ASSUME_ROLE_WEB_IDENTITY_TOKEN`. One of `web_identity_token` or `web_identity_token_file` is required.
-* `web_identity_token_file` - (Optional) File containing a web identity token from an OpenID Connect (OIDC) or OAuth provider. It can be sourced from the `TENCENTCLOUD_ASSUME_ROLE_WEB_IDENTITY_TOKEN_FILE`. One of `web_identity_token` or `web_identity_token_file` is required.
+* `web_identity_token_file` - (Optional) File containing a raw web identity token, including a TKE projected JWT, or legacy JSON with a `web_identity_token` key. It can be sourced from the `TENCENTCLOUD_ASSUME_ROLE_WEB_IDENTITY_TOKEN_FILE`. One of `web_identity_token` or `web_identity_token_file` is required.

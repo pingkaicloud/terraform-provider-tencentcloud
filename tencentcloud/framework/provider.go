@@ -175,7 +175,7 @@ func (p *Provider) Schema(_ context.Context, _ provider.SchemaRequest, resp *pro
 		},
 		Blocks: map[string]schema.Block{
 			"assume_role": schema.SetNestedBlock{
-				Description: "The `assume_role` block. If provided, terraform will attempt to assume this role using the supplied credentials.",
+				Description: "The `assume_role` block. If provided, terraform will attempt to assume this role using the supplied credentials. When assume_role_with_web_identity is also set, its temporary credentials are used for this hop.",
 				NestedObject: schema.NestedBlockObject{
 					Attributes: map[string]schema.Attribute{
 						"role_arn": sdkv2schema.StringAttributeWithEnvDefault{
@@ -266,7 +266,7 @@ func (p *Provider) Schema(_ context.Context, _ provider.SchemaRequest, resp *pro
 						},
 						"web_identity_token_file": schema.StringAttribute{
 							Optional:    true,
-							Description: "File containing a web identity token from an OpenID Connect (OIDC) or OAuth provider. It can be sourced from the `TENCENTCLOUD_ASSUME_ROLE_WEB_IDENTITY_TOKEN_FILE`. One of `web_identity_token` or `web_identity_token_file` is required.",
+							Description: "File containing a raw web identity token (including a TKE projected JWT) or legacy JSON with a web_identity_token key. It can be sourced from the `TENCENTCLOUD_ASSUME_ROLE_WEB_IDENTITY_TOKEN_FILE`. One of `web_identity_token` or `web_identity_token_file` is required.",
 						},
 						"role_arn": schema.StringAttribute{
 							Optional:    true,

@@ -1,0 +1,3 @@
+```release-note:bug
+resource/tencentcloud_kubernetes_node_pool: retain the pool ID and configured instance retention policy when node pool creation succeeds but subsequent configuration fails
+```

@@ -13,15 +13,15 @@ import (
 	"github.com/tencentcloudstack/terraform-provider-tencentcloud/tencentcloud/connectivity"
 )
 
-type endpointImportMeta struct {
+type tkeTestMeta struct {
 	client *connectivity.TencentCloudClient
 }
 
-func (m endpointImportMeta) GetAPIV3Conn() *connectivity.TencentCloudClient { return m.client }
+func (m tkeTestMeta) GetAPIV3Conn() *connectivity.TencentCloudClient { return m.client }
 
-type endpointImportTransport func(*http.Request) (*http.Response, error)
+type tkeTestTransport func(*http.Request) (*http.Response, error)
 
-func (f endpointImportTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+func (f tkeTestTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 // Exercise the registered Terraform import hook, including the real SDK request.
 // Import must only observe access modes; it must not enable or disable endpoints.
@@ -44,7 +44,7 @@ func TestTkeClusterEndpointImport(t *testing.T) {
 			calls := 0
 			reading := false
 			previous := http.DefaultTransport
-			http.DefaultTransport = endpointImportTransport(func(req *http.Request) (*http.Response, error) {
+			http.DefaultTransport = tkeTestTransport(func(req *http.Request) (*http.Response, error) {
 				calls++
 				action := req.Header.Get("X-TC-Action")
 				var body map[string]interface{}
@@ -83,7 +83,7 @@ func TestTkeClusterEndpointImport(t *testing.T) {
 				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(response)), Request: req}, nil
 			})
 			t.Cleanup(func() { http.DefaultTransport = previous })
-			meta := endpointImportMeta{client: &connectivity.TencentCloudClient{
+			meta := tkeTestMeta{client: &connectivity.TencentCloudClient{
 				Credential: common.NewCredential("test-id", "test-key"), Region: "ap-beijing", Protocol: "https", Domain: "tencentcloudapi.com",
 			}}
 			d := schema.TestResourceDataRaw(t, r.Schema, nil)

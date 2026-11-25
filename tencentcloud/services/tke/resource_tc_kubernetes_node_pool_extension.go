@@ -120,6 +120,8 @@ func resourceTencentCloudKubernetesNodePoolCreatePostHandleResponse0(ctx context
 		clusterId = v.(string)
 	}
 	nodePoolId := *resp.Response.NodePoolId
+	// Return the cloud identity in state even if a subsequent configuration call fails.
+	d.SetId(strings.Join([]string{clusterId, nodePoolId}, tccommon.FILED_SP))
 
 	// todo wait for status ok
 	err := resource.Retry(d.Timeout(schema.TimeoutCreate), func() *resource.RetryError {
@@ -127,10 +129,14 @@ func resourceTencentCloudKubernetesNodePoolCreatePostHandleResponse0(ctx context
 		if errRet != nil {
 			return tccommon.RetryError(errRet, tccommon.InternalError)
 		}
-		if nodePool != nil && *nodePool.LifeState == "normal" {
+		if nodePool == nil {
+			return resource.RetryableError(fmt.Errorf("node pool %s is not visible yet", nodePoolId))
+		}
+		status := helper.PString(nodePool.LifeState)
+		if status == "normal" {
 			return nil
 		}
-		return resource.RetryableError(fmt.Errorf("node pool status is %s, retry...", *nodePool.LifeState))
+		return resource.RetryableError(fmt.Errorf("node pool status is %s, retry...", status))
 	})
 	if err != nil {
 		return err
@@ -150,7 +156,6 @@ func resourceTencentCloudKubernetesNodePoolCreatePostHandleResponse0(ctx context
 	//if err != nil {
 	//	return err
 	//}
-	d.SetId(strings.Join([]string{clusterId, nodePoolId}, tccommon.FILED_SP))
 	if err := resourceTencentCloudKubernetesNodePoolUpdateOnStart(ctx); err != nil {
 		return err
 	}
@@ -599,7 +604,9 @@ func resourceTencentCloudKubernetesNodePoolUpdateOnStart(ctx context.Context) er
 		return err
 	}
 
-	d.Partial(true)
+	// Partial mode preserves prior state on update errors. On create there is no
+	// prior state, so it would discard local settings such as delete_keep_instance.
+	d.Partial(!d.IsNewResource())
 
 	nodePool, _, err := service.DescribeNodePool(ctx, clusterId, nodePoolId)
 	if err != nil {

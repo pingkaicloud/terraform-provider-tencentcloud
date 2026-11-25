@@ -17,6 +17,10 @@ import (
 )
 
 func TestNodePoolConfigurationFailurePreservesState(t *testing.T) {
+	transientMessages := []string{
+		"CvmErrorCode: `RequestLimitExceeded.UinLimitExceeded`, CvmErrorMessage: `frequency limit exceeded`",
+		"CvmErrorCode: `InternalError.TradeUnknownError`, CvmErrorMessage: `An internal error has occurred. Retry your request, but if the problem persists, contact us with details by posting a message on the Tencent cloud forums.`, CvmRequestId: `test-cvm-request`, InstanceType: `S9.16XLARGE256`.",
+	}
 	for _, tt := range []struct {
 		name       string
 		failAction string
@@ -29,7 +33,7 @@ func TestNodePoolConfigurationFailurePreservesState(t *testing.T) {
 		{"explicit keep", "ModifyLaunchConfigurationAttributes", common.BoolPtr(true), false},
 		{"default keep", "ModifyLaunchConfigurationAttributes", nil, false},
 		{"existing pool update fails", "ModifyLaunchConfigurationAttributes", common.BoolPtr(false), true},
-		{"both throttled configuration writes recover", "", common.BoolPtr(false), false},
+		{"both configuration writes recover from transient CVM errors", "", common.BoolPtr(false), false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			wantKeep := tt.keep == nil || *tt.keep
@@ -67,8 +71,8 @@ func TestNodePoolConfigurationFailurePreservesState(t *testing.T) {
 							return nil, err
 						}
 						configWrites[action] = append(configWrites[action], string(body))
-						if len(configWrites[action]) == 1 {
-							message := "CvmErrorCode: `RequestLimitExceeded.UinLimitExceeded`, CvmErrorMessage: `frequency limit exceeded`"
+						if attempt := len(configWrites[action]); attempt <= len(transientMessages) {
+							message := transientMessages[attempt-1]
 							if action == "ModifyNodePoolInstanceTypes" {
 								message = "[TencentCloudSDKError] Code=InvalidParameterValue.CvmConfigurationError, Message=" + message
 							}
@@ -97,7 +101,11 @@ func TestNodePoolConfigurationFailurePreservesState(t *testing.T) {
 				}
 				if action == tt.failAction && !failureInjected {
 					failureInjected = true
-					response = nodePoolConfigErrorResponse("CvmErrorCode: `InvalidParameterValue.InstanceType`, CvmErrorMessage: injected configuration failure")
+					message := "CvmErrorCode: `InvalidParameterValue.InstanceType`, CvmErrorMessage: injected configuration failure"
+					if tt.update {
+						message = "CvmErrorCode: `InternalError.Other`, CvmErrorMessage: `injected configuration failure. Retry your request.`"
+					}
+					response = nodePoolConfigErrorResponse(message)
 				}
 				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(response)), Request: req}, nil
 			})
@@ -131,12 +139,17 @@ func TestNodePoolConfigurationFailurePreservesState(t *testing.T) {
 			state, diags := r.Apply(ctx, prior, diff, meta)
 			if tt.failAction == "" {
 				if diags.HasError() {
-					t.Fatalf("create after throttling: %v", diags)
+					t.Fatalf("create after transient CVM errors: %v", diags)
 				}
 				for _, action := range []string{"ModifyNodePoolInstanceTypes", "ModifyLaunchConfigurationAttributes"} {
 					requests := configWrites[action]
-					if len(requests) != 2 || requests[0] != requests[1] {
-						t.Fatalf("%s should retry the same request once, got %v", action, requests)
+					if len(requests) != len(transientMessages)+1 {
+						t.Fatalf("%s made %d requests, want %d", action, len(requests), len(transientMessages)+1)
+					}
+					for _, retried := range requests[1:] {
+						if retried != requests[0] {
+							t.Fatalf("%s changed request on retry: %s, want %s", action, retried, requests[0])
+						}
 					}
 					var body map[string]interface{}
 					if err := json.Unmarshal([]byte(requests[0]), &body); err != nil {

@@ -1792,10 +1792,11 @@ func retryNodePoolConfigWrite(ctx context.Context, write func(context.Context) e
 		if err == nil {
 			return nil
 		}
-		// TKE and AS wrap CVM price inquiry throttling in a configuration error.
+		// TKE and AS expose retryable CVM errors in the configuration error message.
 		var sdkErr *sdkErrors.TencentCloudSDKError
 		if errors.As(err, &sdkErr) && sdkErr.Code == "InvalidParameterValue.CvmConfigurationError" &&
-			strings.Contains(sdkErr.Message, "CvmErrorCode: `RequestLimitExceeded.UinLimitExceeded`") {
+			(strings.Contains(sdkErr.Message, "CvmErrorCode: `RequestLimitExceeded.UinLimitExceeded`") ||
+				strings.Contains(sdkErr.Message, "CvmErrorCode: `InternalError.TradeUnknownError`")) {
 			return retry.RetryableError(err)
 		}
 		return tccommon.RetryError(err)

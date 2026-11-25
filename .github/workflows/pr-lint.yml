@@ -9,6 +9,7 @@ on:
 
 permissions:
   pull-requests: read
+  statuses: write # WIP mode reports its result as a commit status.
 
 jobs:
   main:

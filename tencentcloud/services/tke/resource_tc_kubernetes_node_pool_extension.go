@@ -130,7 +130,7 @@ func resourceTencentCloudKubernetesNodePoolCreatePostHandleResponse0(ctx context
 			return tccommon.RetryError(errRet, tccommon.InternalError)
 		}
 		if nodePool == nil {
-			return resource.RetryableError(fmt.Errorf("node pool %s is not visible yet", nodePoolId))
+			return resource.RetryableError(fmt.Errorf("lookup returned no node pool for %s", nodePoolId))
 		}
 		status := helper.PString(nodePool.LifeState)
 		if status == "normal" {
@@ -179,9 +179,23 @@ func resourceTencentCloudKubernetesNodePoolReadRequestOnError1(ctx context.Conte
 }
 
 func resourceTencentCloudKubernetesNodePoolReadRequestOnSuccess1(ctx context.Context, resp *tke.NodePool) *resource.RetryError {
-	status := *resp.AutoscalingGroupStatus
+	if resp == nil {
+		return nil // Let Read handle a missing pool.
+	}
+
+	// Retry incomplete details before using them to populate state.
+	poolID := helper.PString(resp.NodePoolId)
+	status := helper.PString(resp.AutoscalingGroupStatus)
+	if status == "" || helper.PString(resp.LaunchConfigurationId) == "" || helper.PString(resp.AutoscalingGroupId) == "" {
+		return resource.RetryableError(fmt.Errorf("node pool %s: waiting for scaling group details", poolID))
+	}
 	if status == "enabling" || status == "disabling" {
 		return resource.RetryableError(fmt.Errorf("node pool status is %s, retrying", status))
+	}
+	counts := resp.NodeCountSummary
+	if counts == nil || counts.AutoscalingAdded == nil || counts.AutoscalingAdded.Total == nil ||
+		counts.ManuallyAdded == nil || counts.ManuallyAdded.Total == nil {
+		return resource.RetryableError(fmt.Errorf("node pool %s: waiting for node counts", poolID))
 	}
 	return nil
 }

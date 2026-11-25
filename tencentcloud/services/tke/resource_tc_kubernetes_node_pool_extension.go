@@ -120,6 +120,8 @@ func resourceTencentCloudKubernetesNodePoolCreatePostHandleResponse0(ctx context
 		clusterId = v.(string)
 	}
 	nodePoolId := *resp.Response.NodePoolId
+	// Return the cloud identity in state even if a subsequent configuration call fails.
+	d.SetId(strings.Join([]string{clusterId, nodePoolId}, tccommon.FILED_SP))
 
 	// todo wait for status ok
 	err := resource.Retry(d.Timeout(schema.TimeoutCreate), func() *resource.RetryError {
@@ -127,10 +129,14 @@ func resourceTencentCloudKubernetesNodePoolCreatePostHandleResponse0(ctx context
 		if errRet != nil {
 			return tccommon.RetryError(errRet, tccommon.InternalError)
 		}
-		if nodePool != nil && *nodePool.LifeState == "normal" {
+		if nodePool == nil {
+			return resource.RetryableError(fmt.Errorf("lookup returned no node pool for %s", nodePoolId))
+		}
+		status := helper.PString(nodePool.LifeState)
+		if status == "normal" {
 			return nil
 		}
-		return resource.RetryableError(fmt.Errorf("node pool status is %s, retry...", *nodePool.LifeState))
+		return resource.RetryableError(fmt.Errorf("node pool status is %s, retry...", status))
 	})
 	if err != nil {
 		return err
@@ -150,7 +156,6 @@ func resourceTencentCloudKubernetesNodePoolCreatePostHandleResponse0(ctx context
 	//if err != nil {
 	//	return err
 	//}
-	d.SetId(strings.Join([]string{clusterId, nodePoolId}, tccommon.FILED_SP))
 	if err := resourceTencentCloudKubernetesNodePoolUpdateOnStart(ctx); err != nil {
 		return err
 	}
@@ -174,9 +179,23 @@ func resourceTencentCloudKubernetesNodePoolReadRequestOnError1(ctx context.Conte
 }
 
 func resourceTencentCloudKubernetesNodePoolReadRequestOnSuccess1(ctx context.Context, resp *tke.NodePool) *resource.RetryError {
-	status := *resp.AutoscalingGroupStatus
+	if resp == nil {
+		return nil // Let Read handle a missing pool.
+	}
+
+	// Retry incomplete details before using them to populate state.
+	poolID := helper.PString(resp.NodePoolId)
+	status := helper.PString(resp.AutoscalingGroupStatus)
+	if status == "" || helper.PString(resp.LaunchConfigurationId) == "" || helper.PString(resp.AutoscalingGroupId) == "" {
+		return resource.RetryableError(fmt.Errorf("node pool %s: waiting for scaling group details", poolID))
+	}
 	if status == "enabling" || status == "disabling" {
 		return resource.RetryableError(fmt.Errorf("node pool status is %s, retrying", status))
+	}
+	counts := resp.NodeCountSummary
+	if counts == nil || counts.AutoscalingAdded == nil || counts.AutoscalingAdded.Total == nil ||
+		counts.ManuallyAdded == nil || counts.ManuallyAdded.Total == nil {
+		return resource.RetryableError(fmt.Errorf("node pool %s: waiting for node counts", poolID))
 	}
 	return nil
 }
@@ -599,7 +618,9 @@ func resourceTencentCloudKubernetesNodePoolUpdateOnStart(ctx context.Context) er
 		return err
 	}
 
-	d.Partial(true)
+	// Partial mode preserves prior state on update errors. On create there is no
+	// prior state, so it would discard local settings such as delete_keep_instance.
+	d.Partial(!d.IsNewResource())
 
 	nodePool, _, err := service.DescribeNodePool(ctx, clusterId, nodePoolId)
 	if err != nil {
@@ -625,7 +646,10 @@ func resourceTencentCloudKubernetesNodePoolUpdateOnStart(ctx context.Context) er
 		if composeError != nil {
 			return composeError
 		}
-		_, err = client.UseAsClient().ModifyLaunchConfigurationAttributes(request)
+		err = retryNodePoolConfigWrite(ctx, func(ctx context.Context) error {
+			_, err := client.UseAsClient().ModifyLaunchConfigurationAttributesWithContext(ctx, request)
+			return err
+		})
 		if err != nil {
 			log.Printf("[CRITAL]%s api[%s] fail, request body [%s], reason[%s]\n",
 				logId, request.GetAction(), request.ToJsonString(), err.Error())
@@ -839,13 +863,7 @@ func resourceTencentCloudKubernetesNodePoolUpdateOnExit(ctx context.Context) err
 
 	if d.HasChange("auto_scaling_config.0.backup_instance_types") {
 		instanceTypes := getNodePoolInstanceTypes(d)
-		err := resource.Retry(tccommon.WriteRetryTimeout, func() *resource.RetryError {
-			errRet := service.ModifyClusterNodePoolInstanceTypes(ctx, clusterId, nodePoolId, instanceTypes)
-			if errRet != nil {
-				return tccommon.RetryError(errRet)
-			}
-			return nil
-		})
+		err := service.ModifyClusterNodePoolInstanceTypes(ctx, clusterId, nodePoolId, instanceTypes)
 		if err != nil {
 			return err
 		}

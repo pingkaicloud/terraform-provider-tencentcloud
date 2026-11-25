@@ -1,0 +1,3 @@
+```release-note:bug
+resource/tencentcloud_kubernetes_node_pool: retry instance type and launch configuration changes on CVM account throttling or `InternalError.TradeUnknownError`. Preserve the pool ID and configured instance retention policy if post-create configuration fails.
+```

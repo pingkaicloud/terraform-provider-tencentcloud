@@ -29,12 +29,14 @@ func TestNodePoolConfigurationFailurePreservesState(t *testing.T) {
 		{"explicit keep", "ModifyLaunchConfigurationAttributes", common.BoolPtr(true), false},
 		{"default keep", "ModifyLaunchConfigurationAttributes", nil, false},
 		{"existing pool update fails", "ModifyLaunchConfigurationAttributes", common.BoolPtr(false), true},
+		{"both throttled configuration writes recover", "", common.BoolPtr(false), false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			wantKeep := tt.keep == nil || *tt.keep
 			deleted := false
 			failureInjected := false
 			createCalls := 0
+			configWrites := make(map[string][]string)
 			var incompleteDetails []string
 			if tt.failAction == "ModifyNodePoolInstanceTypes" {
 				// Exercise an empty lookup in the create readiness poll.
@@ -58,7 +60,24 @@ func TestNodePoolConfigurationFailurePreservesState(t *testing.T) {
 					} else if !deleted {
 						response = `{"Response":{"NodePool":{"NodePoolId":"np-test","LifeState":"normal","LaunchConfigurationId":"asc-test","AutoscalingGroupId":"asg-test","AutoscalingGroupStatus":"enabled","MinNodesNum":0,"MaxNodesNum":10,"DesiredNodesNum":0,"NodeCountSummary":{"AutoscalingAdded":{"Total":0},"ManuallyAdded":{"Total":0}}}}}`
 					}
-				case "ModifyNodePoolInstanceTypes", "ModifyLaunchConfigurationAttributes", "DescribeLaunchConfigurations", "DescribeAutoScalingGroups":
+				case "ModifyNodePoolInstanceTypes", "ModifyLaunchConfigurationAttributes":
+					if tt.failAction == "" {
+						body, err := io.ReadAll(req.Body)
+						if err != nil {
+							return nil, err
+						}
+						configWrites[action] = append(configWrites[action], string(body))
+						if len(configWrites[action]) == 1 {
+							message := "CvmErrorCode: `RequestLimitExceeded.UinLimitExceeded`, CvmErrorMessage: `frequency limit exceeded`"
+							if action == "ModifyNodePoolInstanceTypes" {
+								message = "[TencentCloudSDKError] Code=InvalidParameterValue.CvmConfigurationError, Message=" + message
+							}
+							response = nodePoolConfigErrorResponse(message)
+						}
+					}
+				case "DescribeClusterInstances":
+					response = `{"Response":{"TotalCount":0,"InstanceSet":[]}}`
+				case "DescribeLaunchConfigurations", "DescribeAutoScalingGroups", "ModifyClusterNodePool", "ModifyAutoScalingGroup":
 				case "DeleteClusterNodePool":
 					var body struct {
 						ClusterID    string   `json:"ClusterId"`
@@ -78,7 +97,7 @@ func TestNodePoolConfigurationFailurePreservesState(t *testing.T) {
 				}
 				if action == tt.failAction && !failureInjected {
 					failureInjected = true
-					response = `{"Response":{"Error":{"Code":"InvalidParameterValue.CvmConfigurationError","Message":"injected configuration failure"}}}`
+					response = nodePoolConfigErrorResponse("CvmErrorCode: `InvalidParameterValue.InstanceType`, CvmErrorMessage: injected configuration failure")
 				}
 				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(response)), Request: req}, nil
 			})
@@ -110,7 +129,27 @@ func TestNodePoolConfigurationFailurePreservesState(t *testing.T) {
 				t.Fatalf("unexpected diff: %v, error: %v", diff, err)
 			}
 			state, diags := r.Apply(ctx, prior, diff, meta)
-			if !diags.HasError() || !strings.Contains(fmt.Sprint(diags), "injected configuration failure") {
+			if tt.failAction == "" {
+				if diags.HasError() {
+					t.Fatalf("create after throttling: %v", diags)
+				}
+				for _, action := range []string{"ModifyNodePoolInstanceTypes", "ModifyLaunchConfigurationAttributes"} {
+					requests := configWrites[action]
+					if len(requests) != 2 || requests[0] != requests[1] {
+						t.Fatalf("%s should retry the same request once, got %v", action, requests)
+					}
+					var body map[string]interface{}
+					if err := json.Unmarshal([]byte(requests[0]), &body); err != nil {
+						t.Fatal(err)
+					}
+					if action == "ModifyNodePoolInstanceTypes" && (body["ClusterId"] != "cls-test" || body["NodePoolId"] != "np-test") {
+						t.Fatalf("unexpected target for %s: %v", action, body)
+					}
+					if action == "ModifyLaunchConfigurationAttributes" && body["LaunchConfigurationId"] != "asc-test" {
+						t.Fatalf("unexpected target for %s: %v", action, body)
+					}
+				}
+			} else if !diags.HasError() || !strings.Contains(fmt.Sprint(diags), "injected configuration failure") {
 				t.Fatalf("expected %s to fail: %v", tt.failAction, diags)
 			}
 			if !tt.update && createCalls != 1 {
@@ -142,4 +181,8 @@ func TestNodePoolConfigurationFailurePreservesState(t *testing.T) {
 			}
 		})
 	}
+}
+
+func nodePoolConfigErrorResponse(message string) string {
+	return fmt.Sprintf(`{"Response":{"Error":{"Code":"InvalidParameterValue.CvmConfigurationError","Message":%q},"RequestId":"test-request"}}`, message)
 }

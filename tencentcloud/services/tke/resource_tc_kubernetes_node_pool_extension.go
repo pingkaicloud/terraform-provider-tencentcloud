@@ -646,7 +646,10 @@ func resourceTencentCloudKubernetesNodePoolUpdateOnStart(ctx context.Context) er
 		if composeError != nil {
 			return composeError
 		}
-		_, err = client.UseAsClient().ModifyLaunchConfigurationAttributes(request)
+		err = retryNodePoolConfigWrite(ctx, func(ctx context.Context) error {
+			_, err := client.UseAsClient().ModifyLaunchConfigurationAttributesWithContext(ctx, request)
+			return err
+		})
 		if err != nil {
 			log.Printf("[CRITAL]%s api[%s] fail, request body [%s], reason[%s]\n",
 				logId, request.GetAction(), request.ToJsonString(), err.Error())
@@ -860,13 +863,7 @@ func resourceTencentCloudKubernetesNodePoolUpdateOnExit(ctx context.Context) err
 
 	if d.HasChange("auto_scaling_config.0.backup_instance_types") {
 		instanceTypes := getNodePoolInstanceTypes(d)
-		err := resource.Retry(tccommon.WriteRetryTimeout, func() *resource.RetryError {
-			errRet := service.ModifyClusterNodePoolInstanceTypes(ctx, clusterId, nodePoolId, instanceTypes)
-			if errRet != nil {
-				return tccommon.RetryError(errRet)
-			}
-			return nil
-		})
+		err := service.ModifyClusterNodePoolInstanceTypes(ctx, clusterId, nodePoolId, instanceTypes)
 		if err != nil {
 			return err
 		}

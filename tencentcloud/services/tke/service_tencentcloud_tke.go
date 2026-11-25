@@ -10,6 +10,7 @@ import (
 	svccvm "github.com/tencentcloudstack/terraform-provider-tencentcloud/tencentcloud/services/cvm"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/pkg/errors"
 	"github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common"
@@ -1782,6 +1783,25 @@ func (me *TkeService) ModifyClusterNodePoolDesiredCapacity(ctx context.Context, 
 	return
 }
 
+func retryNodePoolConfigWrite(ctx context.Context, write func(context.Context) error) error {
+	timeout := tccommon.WriteRetryTimeout
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return retry.RetryContext(ctx, timeout, func() *retry.RetryError {
+		err := write(ctx)
+		if err == nil {
+			return nil
+		}
+		// TKE and AS wrap CVM price inquiry throttling in a configuration error.
+		var sdkErr *sdkErrors.TencentCloudSDKError
+		if errors.As(err, &sdkErr) && sdkErr.Code == "InvalidParameterValue.CvmConfigurationError" &&
+			strings.Contains(sdkErr.Message, "CvmErrorCode: `RequestLimitExceeded.UinLimitExceeded`") {
+			return retry.RetryableError(err)
+		}
+		return tccommon.RetryError(err)
+	})
+}
+
 func (me *TkeService) ModifyClusterNodePoolInstanceTypes(ctx context.Context, clusterId, nodePoolId string, instanceTypes []*string) (errRet error) {
 	logId := tccommon.GetLogId(ctx)
 	request := tke.NewModifyNodePoolInstanceTypesRequest()
@@ -1795,13 +1815,11 @@ func (me *TkeService) ModifyClusterNodePoolInstanceTypes(ctx context.Context, cl
 	request.NodePoolId = &nodePoolId
 	request.InstanceTypes = instanceTypes
 
-	ratelimit.Check(request.GetAction())
-	_, err := me.client.UseTkeClient().ModifyNodePoolInstanceTypes(request)
-	if err != nil {
-		errRet = err
-		return
-	}
-	return
+	return retryNodePoolConfigWrite(ctx, func(ctx context.Context) error {
+		ratelimit.Check(request.GetAction())
+		_, err := me.client.UseTkeClient().ModifyNodePoolInstanceTypesWithContext(ctx, request)
+		return err
+	})
 }
 
 func (me *TkeService) ModifyClusterNodePoolPreStartUserScript(ctx context.Context, clusterId, nodePoolId, userData, preStartUserScript string) (errRet error) {
